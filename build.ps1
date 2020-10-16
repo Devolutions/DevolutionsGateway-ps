@@ -10,7 +10,7 @@ New-Item -Path "$PSScriptRoot\package\$module" -ItemType 'Directory' -Force | Ou
 }
 
 & dotnet publish "$PSScriptRoot\$module\src" -f netstandard2.0 -c Release -o "$PSScriptRoot\$module\bin"
-Expand-Archive -Path .\resources\cmdlet-service.zip -DestinationPath "$PSScriptRoot\$module\bin" -Force
+
 Copy-Item "$PSScriptRoot\$module\bin" -Destination "$PSScriptRoot\package\$module" -Recurse -Force
 
 Copy-Item "$PSScriptRoot\$module\Private" -Destination "$PSScriptRoot\package\$module" -Recurse -Force

@@ -24,8 +24,8 @@ function Get-DGatewayImage
 
 class DGatewayConfig
 {
-    [string] $JetInstance
-    [string[]] $JetListeners
+    [string] $GatewayHostname
+    [string[]] $GatewayListeners
 
     [string] $DockerPlatform
     [string] $DockerIsolation
@@ -38,14 +38,14 @@ function Set-DGatewayConfig
     [CmdletBinding()]
     param(
         [string] $ConfigPath,
-        [string] $JetInstance,
-        [string[]] $JetListeners,
+        [string] $GatewayHostname,
+        [string[]] $GatewayListeners,
         [ValidateSet("linux","windows")]
         [string] $DockerPlatform,
         [ValidateSet("process","hyperv")]
         [string] $DockerIsolation,
         [ValidateSet("no","on-failure","always","unless-stopped")]
-        [string] $DockerRestartPolicy,
+        [string] $DockerRestartPolicy = "always",
         [string] $DockerImage,
         [string] $Force
     )
@@ -138,8 +138,8 @@ function Expand-DGatewayConfig
         $config.DockerImage = Get-DGatewayImage -Platform $config.DockerPlatform
     }
 
-    if (-Not $config.JetListeners) {
-        $config.JetListeners = @("tcp://0.0.0.0:8080")
+    if (-Not $config.GatewayListeners) {
+        $config.GatewayListeners = @("tcp://0.0.0.0:8080")
     }
 }
 
@@ -160,45 +160,28 @@ function Find-DGatewayConfig
     return $ConfigPath
 }
 
-function Set-DGatewayConfigPath
-{
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory=$true,Position=0)]
-        [string] $ConfigPath
-    )
-
-    $Env:DGATEWAY_CONFIG_PATH = $ConfigPath
-}
-
 function Get-DGatewayPath()
 {
 	[CmdletBinding()]
 	param(
-		[Parameter(Mandatory,Position=0)]
-        [ValidateSet("ConfigPath","GlobalPath","LocalPath")]
-		[string] $PathType
+		[Parameter(Position=0)]
+        [ValidateSet("ConfigPath")]
+		[string] $PathType = "ConfigPath"
 	)
 
     $DisplayName = "Gateway"
     $LowerName = "gateway"
     $CompanyName = "Devolutions"
-	$HomePath = Resolve-Path '~'
 
 	if (Get-IsWindows)	{
-		$LocalPath = $Env:AppData + "\${CompanyName}\${DisplayName}";
 		$GlobalPath = $Env:ProgramData + "\${CompanyName}\${DisplayName}"
 	} elseif ($IsMacOS) {
-		$LocalPath = "$HomePath/Library/Application Support/${DisplayName}"
 		$GlobalPath = "/Library/Application Support/${DisplayName}"
 	} elseif ($IsLinux) {
-		$LocalPath = "$HomePath/.config/${LowerName}"
 		$GlobalPath = "/etc/${LowerName}"
 	}
 
 	switch ($PathType) {
-		'LocalPath' { $LocalPath }
-		'GlobalPath' { $GlobalPath }
         'ConfigPath' { $GlobalPath }
 		default { throw("Invalid path type: $PathType") }
 	}
@@ -256,7 +239,7 @@ function Get-DGatewayService
     $Service.RestartPolicy = $config.DockerRestartPolicy
     $Service.TargetPorts = @(10256)
 
-    foreach ($JetListener in $config.JetListeners) {
+    foreach ($JetListener in $config.GatewayListeners) {
         $ListenerUrl = ([string[]] $($JetListener -Split ','))[0]
         $url = [System.Uri]::new($ListenerUrl)
         $Service.TargetPorts += @($url.Port)
@@ -264,7 +247,7 @@ function Get-DGatewayService
 
     $Service.PublishAll = $true
     $Service.Environment = [ordered]@{
-        "JET_INSTANCE" = $config.JetInstance;
+        "JET_INSTANCE" = $config.GatewayHostname;
         "JET_UNRESTRICTED" = "true";
         "RUST_BACKTRACE" = "1";
         "RUST_LOG" = "info";
@@ -281,7 +264,7 @@ function Get-DGatewayService
     }
 
     $CommandArgs = @()
-    foreach ($JetListener in $config.JetListeners) {
+    foreach ($JetListener in $config.GatewayListeners) {
         $CommandArgs += @('-l', "`"$JetListener`"")
     }
 
@@ -365,5 +348,6 @@ function Restart-DGateway
 
 Export-ModuleMember -Function `
     Set-DGatewayConfig, Get-DGatewayConfig, `
-    Set-DGatewayConfigPath, Get-DGatewayPath, Import-DGatewayCertificate, `
-    Start-DGateway, Stop-DGateway, Restart-DGateway, Update-DGatewayImage
+    Get-DGatewayPath, Import-DGatewayCertificate, `
+    Start-DGateway, Stop-DGateway, Restart-DGateway, `
+    Get-DGatewayImage, Update-DGatewayImage
