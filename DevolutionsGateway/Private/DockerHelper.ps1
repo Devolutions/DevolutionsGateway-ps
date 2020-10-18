@@ -114,6 +114,46 @@ class DockerService
     }
 }
 
+function Start-DockerService
+{
+    [CmdletBinding()]
+    param(
+        [DockerService] $Service,
+        [switch] $Remove
+    )
+
+    if ($Service.External) {
+        return # service should already be running
+    }
+
+    if (Get-ContainerExists -Name $Service.ContainerName) {
+        if (Get-ContainerIsRunning -Name $Service.ContainerName) {
+            Stop-Container -Name $Service.ContainerName
+        }
+
+        if ($Remove) {
+            Remove-Container -Name $Service.ContainerName
+        }
+    }
+
+    $RunCommand = (Get-DockerRunCommand -Service $Service) -Join " "
+
+    Write-Host "Starting $($Service.ContainerName)"
+    Write-Verbose $RunCommand
+
+    $id = Invoke-Expression $RunCommand
+
+    if ($Service.Healthcheck) {
+        Wait-ContainerHealthy -Name $Service.ContainerName | Out-Null
+    }
+
+    if (Get-ContainerIsRunning -Name $Service.ContainerName) {
+        Write-Host "$($Service.ContainerName) successfully started"
+    } else {
+        throw "Error starting $($Service.ContainerName)"
+    }
+}
+
 function Get-ContainerExists
 {
     param(
@@ -171,10 +211,10 @@ function Stop-Container
         [switch] $Quiet
     )
 
-    $args = @('docker', 'stop')
+    $CmdArgs = @('docker', 'stop')
 
-    $args += $Name
-    $cmd = $args -Join " "
+    $CmdArgs += $Name
+    $cmd = $CmdArgs -Join " "
 
     if (-Not $Quiet) {
         Write-Host $cmd
@@ -192,14 +232,14 @@ function Remove-Container
         [switch] $Force
     )
 
-    $args = @('docker', 'rm')
+    $CmdArgs = @('docker', 'rm')
 
     if ($Force) {
-        $args += '-f'
+        $CmdArgs += '-f'
     }
 
-    $args += $Name
-    $cmd = $args -Join " "
+    $CmdArgs += $Name
+    $cmd = $CmdArgs -Join " "
 
     if (-Not $Quiet) {
         Write-Host $cmd
@@ -263,14 +303,14 @@ function Request-ContainerImage()
         [switch] $Quiet
     )
 
-    $args = @('docker', 'pull')
+    $CmdArgs = @('docker', 'pull')
 
     if ($Quiet) {
-        $args += '-q'
+        $CmdArgs += '-q'
     }
 
-    $args += $Name
-    $cmd = $args -Join " "
+    $CmdArgs += $Name
+    $cmd = $CmdArgs -Join " "
 
     if (-Not $Quiet) {
         Write-Host $cmd
@@ -290,9 +330,9 @@ function Get-ContainerImageId()
         $Name = $Name -Replace "library/", ""
     }
 
-    $args = @('docker', 'images', '-q')
-    $args += $Name
-    $cmd = $args -Join " "
+    $CmdArgs = @('docker', 'images', '-q')
+    $CmdArgs += $Name
+    $cmd = $CmdArgs -Join " "
 
     $Id = Invoke-Expression $cmd
     return $Id

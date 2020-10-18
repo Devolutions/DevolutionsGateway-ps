@@ -4,18 +4,22 @@
 . "$PSScriptRoot/../Private/DockerHelper.ps1"
 . "$PSScriptRoot/../Private/CaseHelper.ps1"
 
+$script:DGatewayConfigFileName = "gateway.json"
+$script:DGatewayCertificateFileName = "certificate.pem"
+$script:DGatewayPrivateKeyFileName = "certificate.key"
+
 function Get-DGatewayImage
 {
     param(
         [string] $Platform
     )
 
-    $JetVersion = '0.12.0'
+    $Version = '0.13.0'
 
     $image = if ($Platform -ne "windows") {
-        "devolutions/devolutions-jet:${JetVersion}-buster"
+        "devolutions/devolutions-jet:${Version}-buster-dev"
     } else {
-        "devolutions/devolutions-jet:${JetVersion}-servercore-ltsc2019"
+        "devolutions/devolutions-jet:${Version}-servercore-ltsc2019-dev"
     }
 
     return $image
@@ -62,6 +66,7 @@ class DGatewayConfig
     [string] $DockerIsolation
     [string] $DockerRestartPolicy
     [string] $DockerImage
+    [string] $DockerContainerName
 }
 
 function Save-DGatewayConfig
@@ -73,10 +78,11 @@ function Save-DGatewayConfig
         [DGatewayConfig] $Config
     )
 
+    $ConfigFile = Join-Path $ConfigPath $DGatewayConfigFileName
+
     $Properties = $Config.PSObject.Properties.Name
     $NonNullProperties = $Properties.Where({ -Not [string]::IsNullOrEmpty($Config.$_) })
-    $Config = $Config | Select-Object $NonNullProperties
-    $ConfigData = ConvertTo-Json -InputObject $Config
+    $ConfigData = $Config | Select-Object $NonNullProperties | ConvertTo-Json
 
     [System.IO.File]::WriteAllLines($ConfigFile, $ConfigData, $(New-Object System.Text.UTF8Encoding $False))
 }
@@ -100,8 +106,9 @@ function Set-DGatewayConfig
         [ValidateSet("process","hyperv")]
         [string] $DockerIsolation,
         [ValidateSet("no","on-failure","always","unless-stopped")]
-        [string] $DockerRestartPolicy = "always",
+        [string] $DockerRestartPolicy,
         [string] $DockerImage,
+        [string] $DockerContainerName,
         [string] $Force
     )
 
@@ -111,7 +118,7 @@ function Set-DGatewayConfig
         New-Item -Path $ConfigPath -ItemType 'Directory'
     }
 
-    $ConfigFile = Join-Path $ConfigPath "gateway.json"
+    $ConfigFile = Join-Path $ConfigPath $DGatewayConfigFileName
 
     if (-Not (Test-Path -Path $ConfigFile -PathType 'Leaf')) {
         $config = [DGatewayConfig]::new()
@@ -141,7 +148,7 @@ function Get-DGatewayConfig
 
     $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
 
-    $ConfigFile = Join-Path $ConfigPath "gateway.json"
+    $ConfigFile = Join-Path $ConfigPath $DGatewayConfigFileName
     $ConfigData = Get-Content -Path $ConfigFile -Encoding UTF8
     $json = $ConfigData | ConvertFrom-Json
 
@@ -189,6 +196,10 @@ function Expand-DGatewayConfig
 
     if (-Not $config.DockerImage) {
         $config.DockerImage = Get-DGatewayImage -Platform $config.DockerPlatform
+    }
+
+    if (-Not $config.DockerContainerName) {
+        $config.DockerContainerName = 'devolutions-gateway'
     }
 }
 
@@ -240,19 +251,18 @@ function Get-DGatewayPath()
 	)
 
     $DisplayName = "Gateway"
-    $LowerName = "gateway"
     $CompanyName = "Devolutions"
 
 	if (Get-IsWindows)	{
-		$GlobalPath = $Env:ProgramData + "\${CompanyName}\${DisplayName}"
+		$ConfigPath = $Env:ProgramData + "\${CompanyName}\${DisplayName}"
 	} elseif ($IsMacOS) {
-		$GlobalPath = "/Library/Application Support/${DisplayName}"
+		$ConfigPath = "/Library/Application Support/${CompanyName} ${DisplayName}"
 	} elseif ($IsLinux) {
-		$GlobalPath = "/etc/${LowerName}"
+		$ConfigPath = "/etc/devolutions-gateway"
 	}
 
 	switch ($PathType) {
-        'ConfigPath' { $GlobalPath }
+        'ConfigPath' { $ConfigPath }
 		default { throw("Invalid path type: $PathType") }
 	}
 }
@@ -268,6 +278,22 @@ function Get-DGatewayListeners
     $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
     $Config = Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties
     $Config.GatewayListeners
+}
+
+function Set-DGatewayListeners
+{
+    [CmdletBinding()]
+    [OutputType('DGatewayListener[]')]
+    param(
+        [string] $ConfigPath,
+        [Parameter(Mandatory=$true, Position=0)]
+        [DGatewayListener[]] $Listeners
+    )
+
+    $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
+    $Config = Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties
+    $Config.GatewayListeners = $Listeners
+    Save-DGatewayConfig -ConfigPath:$ConfigPath -Config:$Config
 }
 
 function Import-DGatewayCertificate
@@ -291,14 +317,14 @@ function Import-DGatewayCertificate
 
     New-Item -Path $ConfigPath -ItemType "Directory" -Force | Out-Null
 
-    $CertificateFile = Join-Path $ConfigPath "certificate.pem"
-    $PrivateKeyFile = Join-Path $ConfigPath "certificate.key"
+    $CertificateFile = Join-Path $ConfigPath $DGatewayCertificateFileName
+    $PrivateKeyFile = Join-Path $ConfigPath $DGatewayPrivateKeyFileName
 
     Set-Content -Path $CertificateFile -Value $CertificateData -Force
     Set-Content -Path $PrivateKeyFile -Value $PrivateKeyData -Force
 
-    $Config.CertificateFile = "certificate.pem"
-    $Config.PrivateKeyFile = "certificate.key"
+    $Config.CertificateFile = $DGatewayCertificateFileName
+    $Config.PrivateKeyFile = $DGatewayPrivateKeyFileName
 
     Save-DGatewayConfig -ConfigPath:$ConfigPath -Config:$Config
 }
@@ -311,51 +337,34 @@ function Get-DGatewayService
     )
 
     if ($config.DockerPlatform -eq "linux") {
-        $PathSeparator = "/"
-        $ContainerDataPath = "/etc/jet-relay"
+        $ContainerConfigPath = "/etc/devolutions-gateway"
     } else {
-        $PathSeparator = "\"
-        $ContainerDataPath = "c:\jet-relay"
+        $ContainerConfigPath = "C:\ProgramData\Devolutions\Gateway"
     }
 
     $Service = [DockerService]::new()
-    $Service.ContainerName = 'devolutions-jet'
+    $Service.ContainerName = $config.DockerContainerName
     $Service.Image = $config.DockerImage
     $Service.Platform = $config.DockerPlatform
     $Service.Isolation = $config.DockerIsolation
     $Service.RestartPolicy = $config.DockerRestartPolicy
-    $Service.TargetPorts = @(10256)
+    $Service.TargetPorts = @()
 
-    foreach ($JetListener in $config.GatewayListeners) {
-        $ListenerUrl = ([string[]] $($JetListener -Split ','))[0]
-        $url = [System.Uri]::new($ListenerUrl)
+    foreach ($Listener in $config.GatewayListeners) {
+        $InternalUrl = $Listener.InternalUrl -Replace '://\*', '://localhost'
+        $url = [System.Uri]::new($InternalUrl)
         $Service.TargetPorts += @($url.Port)
     }
+    $Service.TargetPorts = $Service.TargetPorts | Select-Object -Unique
 
     $Service.PublishAll = $true
     $Service.Environment = [ordered]@{
-        "JET_INSTANCE" = $config.GatewayHostname;
-        "JET_UNRESTRICTED" = "true";
+        "DGATEWAY_CONFIG_PATH" = $ContainerConfigPath;
         "RUST_BACKTRACE" = "1";
         "RUST_LOG" = "info";
     }
-    $Service.Volumes = @("${ConfigPath}:${JetRelayDataPath}")
+    $Service.Volumes = @("${ConfigPath}:${ContainerConfigPath}")
     $Service.External = $false
-
-    if (Test-Path "${ConfigPath}/certificate.pem" -PathType 'Leaf') {
-        $Service.Environment['JET_CERTIFICATE_FILE'] = @($ContainerDataPath, 'certificate.pem') -Join $PathSeparator
-    }
-
-    if (Test-Path "${ConfigPath}/certificate.key" -PathType 'Leaf') {
-        $Service.Environment['JET_PRIVATE_KEY_FILE'] = @($ContainerDataPath, 'certificate.key') -Join $PathSeparator
-    }
-
-    $CommandArgs = @()
-    foreach ($JetListener in $config.GatewayListeners) {
-        $CommandArgs += @('-l', "`"$JetListener`"")
-    }
-
-    $Service.Command = $($CommandArgs -Join " ")
 
     return $Service
 }
@@ -368,10 +377,10 @@ function Update-DGatewayImage
     )
 
     $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
-    $config = Get-DGatewayConfig -ConfigPath:$ConfigPath
+    $config = Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties
     Expand-DGatewayConfig -Config $config
 
-    $Service = Get-JetService -ConfigPath:$ConfigPath -Config:$config
+    $Service = Get-DGatewayService -ConfigPath:$ConfigPath -Config:$config
     Request-ContainerImage -Name $Service.Image
 }
 
@@ -383,10 +392,10 @@ function Start-DGateway
     )
 
     $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
-    $config = Get-DGatewayConfig -ConfigPath:$ConfigPath
-    Expand-DGatewayConfig -Config $config
+    $config = Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties
+    Expand-DGatewayConfig -Config:$config
 
-    $Service = Get-JetService -ConfigPath:$ConfigPath -Config:$config
+    $Service = Get-DGatewayService -ConfigPath:$ConfigPath -Config:$config
 
     # pull docker images only if they are not cached locally
     if (-Not (Get-ContainerImageId -Name $Service.Image)) {
@@ -405,7 +414,7 @@ function Stop-DGateway
     )
 
     $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
-    $config = Get-DGatewayConfig -ConfigPath:$ConfigPath
+    $config = Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties
     Expand-DGatewayConfig -Config $config
 
     $Service = Get-DGatewayService -ConfigPath:$ConfigPath -Config:$config
@@ -433,7 +442,7 @@ function Restart-DGateway
 Export-ModuleMember -Function `
     Enter-DGatewayConfig, Exit-DGatewayConfig, `
     Set-DGatewayConfig, Get-DGatewayConfig, `
-    New-DGatewayListener, Get-DGatewayListeners, `
+    New-DGatewayListener, Get-DGatewayListeners, Set-DGatewayListeners, `
     Get-DGatewayPath, Import-DGatewayCertificate, `
     Start-DGateway, Stop-DGateway, Restart-DGateway, `
     Get-DGatewayImage, Update-DGatewayImage
