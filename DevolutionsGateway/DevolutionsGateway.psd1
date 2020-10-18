@@ -66,8 +66,11 @@
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
     FunctionsToExport = @(
         'Set-DGatewayConfig', 'Get-DGatewayConfig',
+        'Set-DGatewayFarmName', 'Get-DGatewayFarmName', 
+        'Set-DGatewayHostname', 'Get-DGatewayHostname',
         'New-DGatewayListener', 'Get-DGatewayListeners', 'Set-DGatewayListeners',
         'Get-DGatewayPath', 'Import-DGatewayCertificate',
+        'Import-DGatewayProvisionerKey', 'Import-DGatewayDelegationKey',
         'Start-DGateway', 'Stop-DGateway', 'Restart-DGateway',
         'Get-DGatewayImage', 'Update-DGatewayImage')
     
