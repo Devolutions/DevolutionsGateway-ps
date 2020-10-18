@@ -2,7 +2,6 @@
 . "$PSScriptRoot/../Private/CertificateHelper.ps1"
 . "$PSScriptRoot/../Private/PlatformHelper.ps1"
 . "$PSScriptRoot/../Private/DockerHelper.ps1"
-. "$PSScriptRoot/../Private/CaseHelper.ps1"
 
 $script:DGatewayConfigFileName = "gateway.json"
 $script:DGatewayCertificateFileName = "certificate.pem"
@@ -58,12 +57,17 @@ function New-DGatewayListener()
 class DGatewayConfig
 {
     [string] $FarmName
+    [string[]] $FarmMembers
+
     [string] $Hostname
     [DGatewayListener[]] $Listeners
+    [string[]] $ApplicationProtocols
 
     [string] $CertificateFile
     [string] $PrivateKeyFile
     [string] $ProvisionerPublicKeyFile
+    [string] $ProvisionerPrivateKeyFile
+    [string] $DelegationPublicKeyFile
     [string] $DelegationPrivateKeyFile
 
     [string] $DockerPlatform
@@ -82,6 +86,7 @@ function Save-DGatewayConfig
         [DGatewayConfig] $Config
     )
 
+    $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
     $ConfigFile = Join-Path $ConfigPath $DGatewayConfigFileName
 
     $Properties = $Config.PSObject.Properties.Name
@@ -97,12 +102,16 @@ function Set-DGatewayConfig
     param(
         [string] $ConfigPath,
         [string] $FarmName,
+        [string[]] $FarmMembers,
         [string] $Hostname,
         [DGatewayListener[]] $Listeners,
+        [string[]] $ApplicationProtocols,
 
         [string] $CertificateFile,
         [string] $PrivateKeyFile,
         [string] $ProvisionerPublicKeyFile,
+        [string] $ProvisionerPrivateKeyFile,
+        [string] $DelegationPublicKeyFile,
         [string] $DelegationPrivateKeyFile,
 
         [ValidateSet("linux","windows")]
@@ -209,12 +218,22 @@ function Expand-DGatewayConfig
 
 function Find-DGatewayConfig
 {
+    [CmdletBinding()]
     param(
         [string] $ConfigPath
     )
 
     if (-Not $ConfigPath) {
-        $ConfigPath = Get-Location
+        $CurrentPath = Get-Location
+        $ConfigFile = Join-Path $CurrentPath $DGatewayConfigFileName
+
+        if (Test-Path -Path $ConfigFile -PathType 'Leaf') {
+            $ConfigPath = $CurrentPath
+        }
+    }
+
+    if (-Not $ConfigPath) {
+        $ConfigPath = Get-DGatewayPath
     }
 
     if ($Env:DGATEWAY_CONFIG_PATH) {
@@ -271,34 +290,6 @@ function Get-DGatewayPath()
 	}
 }
 
-function Get-DGatewayListeners
-{
-    [CmdletBinding()]
-    [OutputType('DGatewayListener[]')]
-    param(
-        [string] $ConfigPath
-    )
-
-    $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
-    $Config = Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties
-    $Config.Listeners
-}
-
-function Set-DGatewayListeners
-{
-    [CmdletBinding()]
-    param(
-        [string] $ConfigPath,
-        [Parameter(Mandatory=$true, Position=0)]
-        [DGatewayListener[]] $Listeners
-    )
-
-    $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
-    $Config = Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties
-    $Config.Listeners = $Listeners
-    Save-DGatewayConfig -ConfigPath:$ConfigPath -Config:$Config
-}
-
 function Get-DGatewayFarmName
 {
     [CmdletBinding()]
@@ -323,6 +314,31 @@ function Set-DGatewayFarmName
     Save-DGatewayConfig -ConfigPath:$ConfigPath -Config:$Config
 }
 
+function Get-DGatewayFarmMembers
+{
+    [CmdletBinding()]
+    param(
+        [string] $ConfigPath
+    )
+
+    $(Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties).FarmMembers
+}
+
+function Set-DGatewayFarmMembers
+{
+    [CmdletBinding()]
+    param(
+        [string] $ConfigPath,
+        [Parameter(Mandatory=$true, Position=0)]
+        [AllowEmptyCollection()]
+        [string[]] $FarmMembers
+    )
+
+    $Config = Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties
+    $Config.FarmMembers = $FarmMembers
+    Save-DGatewayConfig -ConfigPath:$ConfigPath -Config:$Config
+}
+
 function Get-DGatewayHostname
 {
     [CmdletBinding()]
@@ -344,6 +360,61 @@ function Set-DGatewayHostname
 
     $Config = Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties
     $Config.Hostname = $Hostname
+    Save-DGatewayConfig -ConfigPath:$ConfigPath -Config:$Config
+}
+
+function Get-DGatewayListeners
+{
+    [CmdletBinding()]
+    [OutputType('DGatewayListener[]')]
+    param(
+        [string] $ConfigPath
+    )
+
+    $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
+    $Config = Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties
+    $Config.Listeners
+}
+
+function Set-DGatewayListeners
+{
+    [CmdletBinding()]
+    param(
+        [string] $ConfigPath,
+        [Parameter(Mandatory=$true, Position=0)]
+        [AllowEmptyCollection()]
+        [DGatewayListener[]] $Listeners
+    )
+
+    $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
+    $Config = Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties
+    $Config.Listeners = $Listeners
+    Save-DGatewayConfig -ConfigPath:$ConfigPath -Config:$Config
+}
+
+function Get-DGatewayApplicationProtocols
+{
+    [CmdletBinding()]
+    param(
+        [string] $ConfigPath
+    )
+
+    $(Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties).ApplicationProtocols
+}
+
+function Set-DGatewayApplicationProtocols
+{
+    [CmdletBinding()]
+    param(
+        [string] $ConfigPath,
+        [Parameter(Mandatory=$true, Position=0)]
+        [AllowEmptyCollection()]
+        [ValidateSet("none","rdp","wayk")]
+        [string[]] $ApplicationProtocols
+    )
+
+    $Config = Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties
+    $Config.ApplicationProtocols = $ApplicationProtocols
     Save-DGatewayConfig -ConfigPath:$ConfigPath -Config:$Config
 }
 
@@ -380,6 +451,47 @@ function Import-DGatewayCertificate
     Save-DGatewayConfig -ConfigPath:$ConfigPath -Config:$Config
 }
 
+function New-DGatewayProvisionerKeyPair
+{
+    [CmdletBinding()]
+    param(
+        [string] $ConfigPath,
+        [int] $KeySize = 2048,
+        [switch] $Force
+    )
+
+    $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
+    $Config = Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties
+
+    if (-Not (Test-Path -Path $ConfigPath)) {
+        New-Item -Path $ConfigPath -ItemType "Directory" -Force | Out-Null
+    }
+
+    $PublicKeyFile = Join-Path $ConfigPath $DGatewayProvisionerPublicKeyFileName
+    $PrivateKeyFile = Join-Path $ConfigPath $DGatewayProvisionerPrivateKeyFileName
+
+    if ((Test-Path -Path $PublicKeyFile) -Or (Test-Path -Path $PrivateKeyFile)) {
+        if (-Not $Force) {
+            throw "$PublicKeyFile or $PrivateKeyFile already exists, use -Force to overwrite"
+        }
+
+        Remove-Item $PublicKeyFile -Force | Out-Null
+        Remove-Item $PrivateKeyFile -Force | Out-Null
+    }
+
+    $KeyPair = New-RsaKeyPair -KeySize:$KeySize
+
+    $PublicKeyData = $KeyPair.PublicKey
+    $Config.ProvisionerPublicKeyFile = $DGatewayProvisionerPublicKeyFileName
+    Set-Content -Path $PublicKeyFile -Value $PublicKeyData -Force
+
+    $PrivateKeyData = $KeyPair.PrivateKey
+    $Config.ProvisionerPrivateKeyFile = $DGatewayProvisionerPrivateKeyFileName
+    Set-Content -Path $PrivateKeyFile -Value $PrivateKeyData -Force
+
+    Save-DGatewayConfig -ConfigPath:$ConfigPath -Config:$Config
+}
+
 function Import-DGatewayProvisionerKey
 {
     [CmdletBinding()]
@@ -407,6 +519,47 @@ function Import-DGatewayProvisionerKey
         New-Item -Path $ConfigPath -ItemType "Directory" -Force | Out-Null
         Set-Content -Path $OutputFile -Value $PrivateKeyData -Force
     }
+
+    Save-DGatewayConfig -ConfigPath:$ConfigPath -Config:$Config
+}
+
+function New-DGatewayDelegationKeyPair
+{
+    [CmdletBinding()]
+    param(
+        [string] $ConfigPath,
+        [int] $KeySize = 2048,
+        [switch] $Force
+    )
+
+    $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
+    $Config = Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties
+
+    if (-Not (Test-Path -Path $ConfigPath)) {
+        New-Item -Path $ConfigPath -ItemType "Directory" -Force | Out-Null
+    }
+
+    $PublicKeyFile = Join-Path $ConfigPath $DGatewayDelegationPublicKeyFileName
+    $PrivateKeyFile = Join-Path $ConfigPath $DGatewayDelegationPrivateKeyFileName
+
+    if ((Test-Path -Path $PublicKeyFile) -Or (Test-Path -Path $PrivateKeyFile)) {
+        if (-Not $Force) {
+            throw "$PublicKeyFile or $PrivateKeyFile already exists, use -Force to overwrite"
+        }
+
+        Remove-Item $PublicKeyFile -Force | Out-Null
+        Remove-Item $PrivateKeyFile -Force | Out-Null
+    }
+
+    $KeyPair = New-RsaKeyPair -KeySize:$KeySize
+
+    $PublicKeyData = $KeyPair.PublicKey
+    $Config.DelegationPublicKeyFile = $DGatewayDelegationPublicKeyFileName
+    Set-Content -Path $PublicKeyFile -Value $PublicKeyData -Force
+
+    $PrivateKeyData = $KeyPair.PrivateKey
+    $Config.DelegationPrivateKeyFile = $DGatewayDelegationPrivateKeyFileName
+    Set-Content -Path $PrivateKeyFile -Value $PrivateKeyData -Force
 
     Save-DGatewayConfig -ConfigPath:$ConfigPath -Config:$Config
 }
@@ -553,12 +706,15 @@ function Restart-DGateway
 }
 
 Export-ModuleMember -Function `
-    Enter-DGatewayConfig, Exit-DGatewayConfig, `
+    Find-DGatewayConfig, Enter-DGatewayConfig, Exit-DGatewayConfig, `
     Set-DGatewayConfig, Get-DGatewayConfig, `
     Set-DGatewayFarmName, Get-DGatewayFarmName, `
+    Set-DGatewayFarmMembers, Get-DGatewayFarmMembers, `
     Set-DGatewayHostname, Get-DGatewayHostname, `
     New-DGatewayListener, Get-DGatewayListeners, Set-DGatewayListeners, `
+    Set-DGatewayApplicationProtocols, Get-DGatewayApplicationProtocols, `
     Get-DGatewayPath, Import-DGatewayCertificate, `
-    Import-DGatewayProvisionerKey, Import-DGatewayDelegationKey, `
+    New-DGatewayProvisionerKeyPair, Import-DGatewayProvisionerKey, `
+    New-DGatewayDelegationKeyPair, Import-DGatewayDelegationKey, `
     Start-DGateway, Stop-DGateway, Restart-DGateway, `
     Get-DGatewayImage, Update-DGatewayImage

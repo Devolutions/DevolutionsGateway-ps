@@ -49,7 +49,7 @@
     # RequiredModules = @()
     
     # Assemblies that must be loaded prior to importing this module
-    RequiredAssemblies = @('bin\PemUtils.dll', 'bin\YamlDotNet.dll')
+    RequiredAssemblies = @('bin\PemUtils.dll')
     
     # Script files (.ps1) that are run in the caller's environment prior to importing this module.
     # ScriptsToProcess = @()
@@ -65,12 +65,16 @@
     
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
     FunctionsToExport = @(
+        'Find-DGatewayConfig', 'Enter-DGatewayConfig', 'Exit-DGatewayConfig',
         'Set-DGatewayConfig', 'Get-DGatewayConfig',
-        'Set-DGatewayFarmName', 'Get-DGatewayFarmName', 
+        'Set-DGatewayFarmName', 'Get-DGatewayFarmName',
+        'Set-DGatewayFarmMembers', 'Get-DGatewayFarmMembers',
         'Set-DGatewayHostname', 'Get-DGatewayHostname',
         'New-DGatewayListener', 'Get-DGatewayListeners', 'Set-DGatewayListeners',
+        'Set-DGatewayApplicationProtocols', 'Get-DGatewayApplicationProtocols',
         'Get-DGatewayPath', 'Import-DGatewayCertificate',
-        'Import-DGatewayProvisionerKey', 'Import-DGatewayDelegationKey',
+        'New-DGatewayProvisionerKeyPair', 'Import-DGatewayProvisionerKey',
+        'New-DGatewayDelegationKeyPair', 'Import-DGatewayDelegationKey',
         'Start-DGateway', 'Stop-DGateway', 'Restart-DGateway',
         'Get-DGatewayImage', 'Update-DGatewayImage')
     

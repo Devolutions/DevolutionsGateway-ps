@@ -10,13 +10,19 @@ Describe 'Devolutions Gateway config' {
 			}
 			It 'Sets gateway hostname' {
 				$ConfigPath = Join-Path $TestDrive 'Gateway'
-				Set-DGatewayHostname -ConfigPath:$ConfigPath 'host.gateway.local'
-				$(Get-DGatewayHostname -ConfigPath:$ConfigPath) | Should -Be 'host.gateway.local'
+				Set-DGatewayHostname -ConfigPath:$ConfigPath 'host1.gateway.local'
+				$(Get-DGatewayHostname -ConfigPath:$ConfigPath) | Should -Be 'host1.gateway.local'
 			}
 			It 'Sets gateway farm name' {
 				$ConfigPath = Join-Path $TestDrive 'Gateway'
 				Set-DGatewayFarmName -ConfigPath:$ConfigPath 'farm.gateway.local'
 				$(Get-DGatewayFarmName -ConfigPath:$ConfigPath) | Should -Be 'farm.gateway.local'
+			}
+			It 'Sets gateway farm members' {
+				$ConfigPath = Join-Path $TestDrive 'Gateway'
+				$FarmMembers = @('host1.gateway.local','host2.gateway.local','host3.gateway.local')
+				Set-DGatewayFarmMembers -ConfigPath:$ConfigPath $FarmMembers
+				$(Get-DGatewayFarmMembers -ConfigPath:$ConfigPath) | Should -Be $FarmMembers
 			}
 			It 'Sets gateway listeners' {
 				$ConfigPath = Join-Path $TestDrive 'Gateway'
@@ -34,13 +40,20 @@ Describe 'Devolutions Gateway config' {
 				$ActualListeners = Get-DGatewayListeners -ConfigPath:$ConfigPath
 				$ExpectedListeners.Count | Should -Be $ActualListeners.Count
 			}
-			It 'Starts Gateway' {
+			It 'Sets gateway application protocols' {
 				$ConfigPath = Join-Path $TestDrive 'Gateway'
-				Start-DGateway -ConfigPath:$ConfigPath -Verbose
+				Set-DGatewayApplicationProtocols -ConfigPath:$ConfigPath @('rdp')
+				$(Get-DGatewayApplicationProtocols -ConfigPath:$ConfigPath) | Should -Be @('rdp')
+				Set-DGatewayApplicationProtocols -ConfigPath:$ConfigPath @()
+				$(Get-DGatewayApplicationProtocols -ConfigPath:$ConfigPath) | Should -Be @()
+			}
+			It 'Starts Gateway' {
+				#$ConfigPath = Join-Path $TestDrive 'Gateway'
+				#Start-DGateway -ConfigPath:$ConfigPath -Verbose
 			}
 			It 'Stops Gateway' {
-				$ConfigPath = Join-Path $TestDrive 'Gateway'
-				Stop-DGateway -ConfigPath:$ConfigPath -Verbose
+				#$ConfigPath = Join-Path $TestDrive 'Gateway'
+				#Stop-DGateway -ConfigPath:$ConfigPath -Verbose
 			}
 		}
 	}
