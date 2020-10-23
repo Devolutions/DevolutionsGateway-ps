@@ -20,9 +20,9 @@ function Get-DGatewayImage
     $Version = '0.13.0'
 
     $image = if ($Platform -ne "windows") {
-        "devolutions/devolutions-jet:${Version}-buster-dev"
+        "devolutions/devolutions-gateway:${Version}-buster-dev"
     } else {
-        "devolutions/devolutions-jet:${Version}-servercore-ltsc2019-dev"
+        "devolutions/devolutions-gateway:${Version}-servercore-ltsc2019-dev"
     }
 
     return $image
@@ -162,10 +162,17 @@ function Get-DGatewayConfig
     $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
 
     $ConfigFile = Join-Path $ConfigPath $DGatewayConfigFileName
-    $ConfigData = Get-Content -Path $ConfigFile -Encoding UTF8
-    $json = $ConfigData | ConvertFrom-Json
 
     $config = [DGatewayConfig]::new()
+
+    if (-Not (Test-Path -Path $ConfigFile -PathType 'Leaf')) {
+        if ($NullProperties) {
+            return $config
+        }
+    }
+
+    $ConfigData = Get-Content -Path $ConfigFile -Encoding UTF8
+    $json = $ConfigData | ConvertFrom-Json
 
     [DGatewayConfig].GetProperties() | ForEach-Object {
         $Name = $_.Name
@@ -251,8 +258,12 @@ function Enter-DGatewayConfig
         [switch] $ChangeDirectory
     )
 
+    if ($ConfigPath) {
+        $ConfigPath = Resolve-Path $ConfigPath
+        $Env:DGATEWAY_CONFIG_PATH = $ConfigPath
+    }
+
     $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
-    $Env:DGATEWAY_CONFIG_PATH = $ConfigPath
 
     if ($ChangeDirectory) {
         Set-Location $ConfigPath
@@ -616,7 +627,7 @@ function Get-DGatewayService
     $Service.RestartPolicy = $config.DockerRestartPolicy
     $Service.TargetPorts = @()
 
-    foreach ($Listener in $config.GatewayListeners) {
+    foreach ($Listener in $config.Listeners) {
         $InternalUrl = $Listener.InternalUrl -Replace '://\*', '://localhost'
         $url = [System.Uri]::new($InternalUrl)
         $Service.TargetPorts += @($url.Port)
@@ -704,17 +715,3 @@ function Restart-DGateway
     Stop-DGateway -ConfigPath:$ConfigPath
     Start-DGateway -ConfigPath:$ConfigPath
 }
-
-Export-ModuleMember -Function `
-    Find-DGatewayConfig, Enter-DGatewayConfig, Exit-DGatewayConfig, `
-    Set-DGatewayConfig, Get-DGatewayConfig, `
-    Set-DGatewayFarmName, Get-DGatewayFarmName, `
-    Set-DGatewayFarmMembers, Get-DGatewayFarmMembers, `
-    Set-DGatewayHostname, Get-DGatewayHostname, `
-    New-DGatewayListener, Get-DGatewayListeners, Set-DGatewayListeners, `
-    Set-DGatewayApplicationProtocols, Get-DGatewayApplicationProtocols, `
-    Get-DGatewayPath, Import-DGatewayCertificate, `
-    New-DGatewayProvisionerKeyPair, Import-DGatewayProvisionerKey, `
-    New-DGatewayDelegationKeyPair, Import-DGatewayDelegationKey, `
-    Start-DGateway, Stop-DGateway, Restart-DGateway, `
-    Get-DGatewayImage, Update-DGatewayImage
