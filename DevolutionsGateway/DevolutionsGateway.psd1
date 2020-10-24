@@ -75,6 +75,7 @@
         'Get-DGatewayPath', 'Import-DGatewayCertificate',
         'New-DGatewayProvisionerKeyPair', 'Import-DGatewayProvisionerKey',
         'New-DGatewayDelegationKeyPair', 'Import-DGatewayDelegationKey',
+        'New-DGatewayToken',
         'Start-DGateway', 'Stop-DGateway', 'Restart-DGateway',
         'Get-DGatewayImage', 'Update-DGatewayImage')
     
@@ -117,7 +118,7 @@
             # ReleaseNotes = ''
 
             # Prerelease string of this module
-            Prerelease = 'rc1'
+            Prerelease = 'rc2'
 
             # Flag to indicate whether the module requires explicit user acceptance for install/update/save
             # RequireLicenseAcceptance = $false

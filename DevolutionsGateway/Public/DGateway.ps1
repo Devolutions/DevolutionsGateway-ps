@@ -2,6 +2,7 @@
 . "$PSScriptRoot/../Private/CertificateHelper.ps1"
 . "$PSScriptRoot/../Private/PlatformHelper.ps1"
 . "$PSScriptRoot/../Private/DockerHelper.ps1"
+. "$PSScriptRoot/../Private/TokenHelper.ps1"
 
 $script:DGatewayConfigFileName = "gateway.json"
 $script:DGatewayCertificateFileName = "certificate.pem"
@@ -20,9 +21,9 @@ function Get-DGatewayImage
     $Version = '0.13.0'
 
     $image = if ($Platform -ne "windows") {
-        "devolutions/devolutions-jet:${Version}-buster-dev"
+        "devolutions/devolutions-gateway:${Version}-buster-dev"
     } else {
-        "devolutions/devolutions-jet:${Version}-servercore-ltsc2019-dev"
+        "devolutions/devolutions-gateway:${Version}-servercore-ltsc2019-dev"
     }
 
     return $image
@@ -162,10 +163,17 @@ function Get-DGatewayConfig
     $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
 
     $ConfigFile = Join-Path $ConfigPath $DGatewayConfigFileName
-    $ConfigData = Get-Content -Path $ConfigFile -Encoding UTF8
-    $json = $ConfigData | ConvertFrom-Json
 
     $config = [DGatewayConfig]::new()
+
+    if (-Not (Test-Path -Path $ConfigFile -PathType 'Leaf')) {
+        if ($NullProperties) {
+            return $config
+        }
+    }
+
+    $ConfigData = Get-Content -Path $ConfigFile -Encoding UTF8
+    $json = $ConfigData | ConvertFrom-Json
 
     [DGatewayConfig].GetProperties() | ForEach-Object {
         $Name = $_.Name
@@ -251,8 +259,12 @@ function Enter-DGatewayConfig
         [switch] $ChangeDirectory
     )
 
+    if ($ConfigPath) {
+        $ConfigPath = Resolve-Path $ConfigPath
+        $Env:DGATEWAY_CONFIG_PATH = $ConfigPath
+    }
+
     $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
-    $Env:DGATEWAY_CONFIG_PATH = $ConfigPath
 
     if ($ChangeDirectory) {
         Set-Location $ConfigPath
@@ -409,7 +421,7 @@ function Set-DGatewayApplicationProtocols
         [string] $ConfigPath,
         [Parameter(Mandatory=$true, Position=0)]
         [AllowEmptyCollection()]
-        [ValidateSet("none","rdp","wayk")]
+        [ValidateSet("none","rdp","wayk","pwsh")]
         [string[]] $ApplicationProtocols
     )
 
@@ -595,6 +607,95 @@ function Import-DGatewayDelegationKey
     Save-DGatewayConfig -ConfigPath:$ConfigPath -Config:$Config
 }
 
+function New-DGatewayToken
+{
+    [CmdletBinding()]
+    param(
+        [string] $ConfigPath,
+
+        # public claims
+        [DateTime] $ExpirationTime, # exp
+        [DateTime] $NotBefore, # nbf
+        [DateTime] $IssuedAt, # iat
+
+        # private claims
+        [string] $DestinationHost, # dst_hst
+        [ValidateSet("none","rdp","wayk","pwsh")]
+        [string] $ApplicationProtocol, # jet_ap
+        [ValidateSet("fwd","rdv")]
+        [string] $ConnectionMode, # jet_cm
+
+        # signature parameters
+        [string] $PrivateKeyFile
+    )
+
+    $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
+    $Config = Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties
+
+    if (-Not $PrivateKeyFile) {
+        $PrivateKeyFile = Join-Path $ConfigPath $Config.ProvisionerPrivateKeyFile
+    }
+
+    if (-Not (Test-Path -Path $PrivateKeyFile -PathType 'Leaf')) {
+        throw "$PrivateKeyFile cannot be found."
+    }
+
+    $PrivateKey = ConvertTo-RsaPrivateKey $(Get-Content $PrivateKeyFile -Raw)
+
+    $CurrentTime = Get-Date
+
+    if (-Not $NotBefore) {
+        $NotBefore = $CurrentTime
+    }
+
+    if (-Not $IssuedAt) {
+        $IssuedAt = $CurrentTime
+    }
+
+    if (-Not $ExpirationTime) {
+        $ExpirationTime = $CurrentTime.AddMinutes(2)
+    }
+
+    if (-Not $ConnectionMode) {
+        if ($DestinationHost) {
+            $ConnectionMode = 'fwd'
+        } else {
+            $ConnectionMode = 'rdv'
+        }
+    }
+
+    if (-Not $ApplicationProtocol) {
+        if ($ConnectionMode -eq 'fwd') {
+            $ApplicationProtocol = 'rdp'
+        } else {
+            $ApplicationProtocol = 'wayk'
+        }
+    }
+    
+    $iat = [System.DateTimeOffset]::new($IssuedAt).ToUnixTimeSeconds()
+    $nbf = [System.DateTimeOffset]::new($NotBefore).ToUnixTimeSeconds()
+    $exp = [System.DateTimeOffset]::new($ExpirationTime).ToUnixTimeSeconds()
+    
+    $Header = [PSCustomObject]@{
+        alg = 'RS256'
+        typ = 'JWT'
+    }
+    
+    $Payload = [PSCustomObject]@{
+        iat = $iat
+        nbf = $nbf
+        exp = $exp
+        jet_ap = $ApplicationProtocol
+        jet_cm = $ConnectionMode
+    }
+
+    if ($DestinationHost) {
+        $Payload | Add-Member -MemberType NoteProperty -Name 'dst_hst' -Value $DestinationHost
+    }
+
+    New-JwtRs256 -Header $Header -Payload $Payload -PrivateKey $PrivateKey
+}
+
 function Get-DGatewayService
 {
     param(
@@ -616,7 +717,7 @@ function Get-DGatewayService
     $Service.RestartPolicy = $config.DockerRestartPolicy
     $Service.TargetPorts = @()
 
-    foreach ($Listener in $config.GatewayListeners) {
+    foreach ($Listener in $config.Listeners) {
         $InternalUrl = $Listener.InternalUrl -Replace '://\*', '://localhost'
         $url = [System.Uri]::new($InternalUrl)
         $Service.TargetPorts += @($url.Port)
@@ -704,17 +805,3 @@ function Restart-DGateway
     Stop-DGateway -ConfigPath:$ConfigPath
     Start-DGateway -ConfigPath:$ConfigPath
 }
-
-Export-ModuleMember -Function `
-    Find-DGatewayConfig, Enter-DGatewayConfig, Exit-DGatewayConfig, `
-    Set-DGatewayConfig, Get-DGatewayConfig, `
-    Set-DGatewayFarmName, Get-DGatewayFarmName, `
-    Set-DGatewayFarmMembers, Get-DGatewayFarmMembers, `
-    Set-DGatewayHostname, Get-DGatewayHostname, `
-    New-DGatewayListener, Get-DGatewayListeners, Set-DGatewayListeners, `
-    Set-DGatewayApplicationProtocols, Get-DGatewayApplicationProtocols, `
-    Get-DGatewayPath, Import-DGatewayCertificate, `
-    New-DGatewayProvisionerKeyPair, Import-DGatewayProvisionerKey, `
-    New-DGatewayDelegationKeyPair, Import-DGatewayDelegationKey, `
-    Start-DGateway, Stop-DGateway, Restart-DGateway, `
-    Get-DGatewayImage, Update-DGatewayImage
