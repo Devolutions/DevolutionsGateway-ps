@@ -2,6 +2,7 @@
 . "$PSScriptRoot/../Private/CertificateHelper.ps1"
 . "$PSScriptRoot/../Private/PlatformHelper.ps1"
 . "$PSScriptRoot/../Private/DockerHelper.ps1"
+. "$PSScriptRoot/../Private/TokenHelper.ps1"
 
 $script:DGatewayConfigFileName = "gateway.json"
 $script:DGatewayCertificateFileName = "certificate.pem"
@@ -420,7 +421,7 @@ function Set-DGatewayApplicationProtocols
         [string] $ConfigPath,
         [Parameter(Mandatory=$true, Position=0)]
         [AllowEmptyCollection()]
-        [ValidateSet("none","rdp","wayk")]
+        [ValidateSet("none","rdp","wayk","pwsh")]
         [string[]] $ApplicationProtocols
     )
 
@@ -604,6 +605,95 @@ function Import-DGatewayDelegationKey
     }
 
     Save-DGatewayConfig -ConfigPath:$ConfigPath -Config:$Config
+}
+
+function New-DGatewayToken
+{
+    [CmdletBinding()]
+    param(
+        [string] $ConfigPath,
+
+        # public claims
+        [DateTime] $ExpirationTime, # exp
+        [DateTime] $NotBefore, # nbf
+        [DateTime] $IssuedAt, # iat
+
+        # private claims
+        [string] $DestinationHost, # dst_hst
+        [ValidateSet("none","rdp","wayk","pwsh")]
+        [string] $ApplicationProtocol, # jet_ap
+        [ValidateSet("fwd","rdv")]
+        [string] $ConnectionMode, # jet_cm
+
+        # signature parameters
+        [string] $PrivateKeyFile
+    )
+
+    $ConfigPath = Find-DGatewayConfig -ConfigPath:$ConfigPath
+    $Config = Get-DGatewayConfig -ConfigPath:$ConfigPath -NullProperties
+
+    if (-Not $PrivateKeyFile) {
+        $PrivateKeyFile = Join-Path $ConfigPath $Config.ProvisionerPrivateKeyFile
+    }
+
+    if (-Not (Test-Path -Path $PrivateKeyFile -PathType 'Leaf')) {
+        throw "$PrivateKeyFile cannot be found."
+    }
+
+    $PrivateKey = ConvertTo-RsaPrivateKey $(Get-Content $PrivateKeyFile -Raw)
+
+    $CurrentTime = Get-Date
+
+    if (-Not $NotBefore) {
+        $NotBefore = $CurrentTime
+    }
+
+    if (-Not $IssuedAt) {
+        $IssuedAt = $CurrentTime
+    }
+
+    if (-Not $ExpirationTime) {
+        $ExpirationTime = $CurrentTime.AddMinutes(2)
+    }
+
+    if (-Not $ConnectionMode) {
+        if ($DestinationHost) {
+            $ConnectionMode = 'fwd'
+        } else {
+            $ConnectionMode = 'rdv'
+        }
+    }
+
+    if (-Not $ApplicationProtocol) {
+        if ($ConnectionMode -eq 'fwd') {
+            $ApplicationProtocol = 'rdp'
+        } else {
+            $ApplicationProtocol = 'wayk'
+        }
+    }
+    
+    $iat = [System.DateTimeOffset]::new($IssuedAt).ToUnixTimeSeconds()
+    $nbf = [System.DateTimeOffset]::new($NotBefore).ToUnixTimeSeconds()
+    $exp = [System.DateTimeOffset]::new($ExpirationTime).ToUnixTimeSeconds()
+    
+    $Header = [PSCustomObject]@{
+        alg = 'RS256'
+        typ = 'JWT'
+    }
+    
+    $Payload = [PSCustomObject]@{
+        iat = $iat
+        nbf = $nbf
+        exp = $exp
+        jet_ap = $ApplicationProtocol
+        jet_cm = $ConnectionMode
+    }
+
+    if ($DestinationHost) {
+        $Payload | Add-Member -MemberType NoteProperty -Name 'dst_hst' -Value $DestinationHost
+    }
+
+    New-JwtRs256 -Header $Header -Payload $Payload -PrivateKey $PrivateKey
 }
 
 function Get-DGatewayService

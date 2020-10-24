@@ -14,6 +14,21 @@ function ConvertFrom-RsaPublicKey
     [System.IO.StreamReader]::new($stream).ReadToEnd()
 }
 
+function ConvertTo-RsaPublicKey
+{
+    [OutputType('System.Security.Cryptography.RSA')]
+    param(
+        [Parameter(Mandatory=$true,Position=0)]
+        [string] $Pem
+    )
+
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($Pem)
+    $stream = [System.IO.MemoryStream]::new($bytes)
+    $reader = [PemUtils.PemReader]::new($stream)
+    $params = $reader.ReadRsaKey();
+    [System.Security.Cryptography.RSA]::Create($params)
+}
+
 function ConvertFrom-RsaPrivateKey
 {
     [OutputType('System.String')]
@@ -26,7 +41,22 @@ function ConvertFrom-RsaPrivateKey
     $writer = [PemUtils.PemWriter]::new($stream)
     $writer.WritePrivateKey($Rsa)
     $stream.Seek(0, [System.IO.SeekOrigin]::Begin) | Out-Null
-    [System.IO.StreamReader]::new($stream).ReadToEnd()
+    [System.IO.StreamReader]::new($stream).ReadToEnd().Trim()
+}
+
+function ConvertTo-RsaPrivateKey
+{
+    [OutputType('System.Security.Cryptography.RSA')]
+    param(
+        [Parameter(Mandatory=$true,Position=0)]
+        [string] $Pem
+    )
+
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($Pem)
+    $stream = [System.IO.MemoryStream]::new($bytes)
+    $reader = [PemUtils.PemReader]::new($stream)
+    $params = $reader.ReadRsaKey();
+    [System.Security.Cryptography.RSA]::Create($params)
 }
 
 function New-RsaKeyPair

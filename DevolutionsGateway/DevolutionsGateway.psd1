@@ -75,6 +75,7 @@
         'Get-DGatewayPath', 'Import-DGatewayCertificate',
         'New-DGatewayProvisionerKeyPair', 'Import-DGatewayProvisionerKey',
         'New-DGatewayDelegationKeyPair', 'Import-DGatewayDelegationKey',
+        'New-DGatewayToken',
         'Start-DGateway', 'Stop-DGateway', 'Restart-DGateway',
         'Get-DGatewayImage', 'Update-DGatewayImage')
     
