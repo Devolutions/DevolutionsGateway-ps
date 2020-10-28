@@ -21,9 +21,9 @@ function Get-DGatewayImage
     $Version = '0.13.0'
 
     $image = if ($Platform -ne "windows") {
-        "devolutions/devolutions-gateway:${Version}-buster-dev"
+        "devolutions/devolutions-gateway:${Version}-buster"
     } else {
-        "devolutions/devolutions-gateway:${Version}-servercore-ltsc2019-dev"
+        "devolutions/devolutions-gateway:${Version}-servercore-ltsc2019"
     }
 
     return $image
